@@ -66,18 +66,25 @@ function DashboardContent() {
     }
   }, []);
 
+  const [streamOffline, setStreamOffline] = useState(false);
+
   const { data: vitalsData, error: vitalsError, isLoading: vitalsLoading, refetch: refetchVitals } = useQuery({
     queryKey: ['vitals', patientId, phiRedacted],
     queryFn: async () => {
-      const res = await fetch(`/api/vitals/${patientId}`, { 
-        headers: { 'x-redact-pii': phiRedacted.toString() } 
-      });
-      const text = await res.text();
       try {
+        const res = await fetch(`/api/vitals/${patientId}`, { 
+          headers: { 'x-redact-pii': phiRedacted.toString() } 
+        });
+
+        if (!res.ok) {
+          throw new Error('Clinical Data Stream Offline');
+        }
+
+        const text = await res.text();
         const json = JSON.parse(text);
         return json;
-      } catch (e) {
-        throw new Error("Data Stream Interrupted: Check Clinical Data Source.");
+      } catch (e: any) {
+        throw new Error('Clinical Data Stream Offline');
       }
     },
     staleTime: 1000 * 60 * 2,
@@ -126,6 +133,14 @@ function DashboardContent() {
     setDidTimeout(false);
   }, [isLoading]);
 
+  useEffect(() => {
+    if (vitalsError) {
+      setStreamOffline(true);
+      const timer = window.setTimeout(() => setStreamOffline(false), 5000);
+      return () => window.clearTimeout(timer);
+    }
+  }, [vitalsError]);
+
   const patientFallback = {
     patientId: "123",
     mrn: "882-114-001",
@@ -173,9 +188,11 @@ function DashboardContent() {
               <div className="h-full overflow-y-auto p-4 md:p-6 custom-scrollbar min-h-0">
                 <div className="mx-auto flex h-full min-h-[0] max-w-[1600px] flex-col gap-6">
                   <RiskProfileHeader
-                    vitalsData={effectiveVitalsData}
+                    vitalsData={vitalsData}
                     handoffData={effectiveHandoffData}
                     timeout={showTimeoutMessage}
+                    isLoading={vitalsLoading}
+                    error={vitalsError}
                   />
 
                   <div className="grid w-full gap-6 lg:grid-cols-[minmax(0,1fr)_350px] items-start">
@@ -210,7 +227,7 @@ function DashboardContent() {
         
       </main>
 
-      {(showSyncBadge || showTimeoutMessage) && (
+      {(showSyncBadge || showTimeoutMessage || streamOffline) && (
         <div className="absolute bottom-6 right-6 z-40 flex flex-col items-end gap-2">
           {showSyncBadge && (
             <div className="rounded-full border border-slate-700 bg-slate-950/95 px-3 py-2 text-[11px] uppercase tracking-[0.2em] font-semibold text-slate-300 shadow-xl shadow-slate-950/40 backdrop-blur-md">
@@ -220,6 +237,11 @@ function DashboardContent() {
           {showTimeoutMessage && (
             <div className="rounded-2xl border border-crimson-500 bg-crimson-950/95 px-4 py-3 text-sm font-semibold text-crimson-100 shadow-2xl shadow-crimson-950/20 backdrop-blur-md">
               Connection Time-out: Please Check Clinical Source.
+            </div>
+          )}
+          {streamOffline && (
+            <div className="rounded-2xl border border-red-500 bg-red-950/95 px-4 py-3 text-sm font-semibold text-red-100 shadow-2xl shadow-red-950/20 backdrop-blur-md">
+              Clinical Data Stream Offline
             </div>
           )}
         </div>

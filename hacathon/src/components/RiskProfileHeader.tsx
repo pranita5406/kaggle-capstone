@@ -6,60 +6,34 @@ import { AreaChart, Area, ResponsiveContainer, YAxis, Tooltip, ReferenceLine, Co
 import { cn } from "@/lib/utils";
 import { useDashboard } from "@/context/DashboardContext";
 
-export function RiskProfileHeader({ vitalsData, handoffData, timeout }: any) {
+export function RiskProfileHeader({ vitalsData, handoffData, timeout, isLoading, error }: any) {
   const { phiRedacted, setPhiRedacted } = useDashboard();
 
   const patientFallback = { patientId: "123", mrn: "882-114-001", firstName: "John", lastName: "Doe", dob: "1959-05-12", currentProtocol: "Sepsis" };
   const patient = handoffData?.patient || patientFallback;
 
-  const shiftRange = Array.from({ length: 8 }).map((_, index) => index);
-  const hrDemoData = shiftRange.map(index => ({
-    time: `${index * 2}:00`,
-    value: 80 + Math.round(index * 3.125), // Progressive increase from 80 to 105 over 8 hours
-  }));
-  hrDemoData[hrDemoData.length - 1].value = 105;
-
-  const bpDemoData = shiftRange.map(index => ({
-    time: `${index * 2}:00`,
-    systolic: Math.max(99, 120 - Math.round(index * 2.625)), // Decrease from 120 to 99
-    diastolic: Math.max(71, 86 - Math.round(index * 1.875)), // Decrease from 86 to 71
-  }));
-  bpDemoData[bpDemoData.length - 1].systolic = 99;
-  bpDemoData[bpDemoData.length - 1].diastolic = 71;
-
-  const spo2DemoData = shiftRange.map(index => ({
-    time: `${index * 2}:00`,
-    value: 97, // Stable at 97%
-  }));
-
-  const fallbackVitals = Array.from({ length: 7 }).map((_, index) => ({
-    timestamp: new Date(Date.now() - (6 - index) * 60000).toISOString(),
-    heartRate: 82,
-    nibpSystolic: 120,
-    nibpDiastolic: 76,
-    spo2: 96,
-  }));
-
-  const vitals = vitalsData?.vitals?.length ? vitalsData.vitals : fallbackVitals;
-  const analysis = vitalsData?.analysis || { deltas: { hrDeltaPct: 32.5, nibpDeltaPct: -13.5 }, flaggedInsights: [] };
+  // Use real API data when available, otherwise show loading state
+  const vitals = vitalsData?.vitals;
+  const analysis = vitalsData?.analysis || { deltas: { hrDeltaPct: 0, nibpDeltaPct: 0 }, flaggedInsights: [] };
 
   const formatTime = (ts: string) => {
     const d = new Date(ts);
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`;
   };
 
-  const hrData = vitalsData?.vitals?.length ? vitals.map((v: any) => ({ time: formatTime(v.timestamp), value: v.heartRate })) : hrDemoData;
-  const bpData = vitalsData?.vitals?.length ? vitals.map((v: any) => ({ time: formatTime(v.timestamp), systolic: v.nibpSystolic, diastolic: v.nibpDiastolic })) : bpDemoData;
-  const spo2Data = vitalsData?.vitals?.length ? vitals.map((v: any) => ({ time: formatTime(v.timestamp), value: v.spo2 })) : spo2DemoData;
+  // Map real data for charts
+  const hrData = vitals?.length ? vitals.map((v: any) => ({ time: formatTime(v.timestamp), value: v.heartRate })) : [];
+  const bpData = vitals?.length ? vitals.map((v: any) => ({ time: formatTime(v.timestamp), systolic: v.nibpSystolic, diastolic: v.nibpDiastolic })) : [];
+  const spo2Data = vitals?.length ? vitals.map((v: any) => ({ time: formatTime(v.timestamp), value: v.spo2 })) : [];
 
-  const currentHr = vitalsData?.vitals?.length ? hrData[hrData.length - 1]?.value : 105;
-  const currentBp = vitalsData?.vitals?.length ? `${bpData[bpData.length - 1]?.systolic ?? "--"}/${bpData[bpData.length - 1]?.diastolic ?? "--"}` : '99/71';
-  const currentSpo2 = vitalsData?.vitals?.length ? spo2Data[spo2Data.length - 1]?.value : 97;
+  // Get current values from real data
+  const currentHr = vitals?.length ? vitals[vitals.length - 1].heartRate : null;
+  const currentBp = vitals?.length ? `${vitals[vitals.length - 1].nibpSystolic}/${vitals[vitals.length - 1].nibpDiastolic}` : null;
+  const currentSpo2 = vitals?.length ? vitals[vitals.length - 1].spo2 : null;
 
-  const hrDelta = Number(analysis?.deltas?.hrDeltaPct || 32.5);
-  const bpDelta = Number(analysis?.deltas?.nibpDeltaPct || -13.5);
-
-  const getDirection = (delta: number) => delta > 0 ? "up" : delta < 0 ? "down" : "neutral";
+  // Get delta values from analysis
+  const hrDelta = analysis?.deltas?.hrDeltaPct ? Number(analysis.deltas.hrDeltaPct) : 0;
+  const bpDelta = analysis?.deltas?.nibpDeltaPct ? Number(analysis.deltas.nibpDeltaPct) : 0;
 
   return (
     <div className="bg-slate-900 border-b border-slate-700 p-8 shadow-sm z-10 flex flex-col gap-8 relative overflow-hidden" style={{ fontFamily: 'Inter, sans-serif' }}>
@@ -111,33 +85,35 @@ export function RiskProfileHeader({ vitalsData, handoffData, timeout }: any) {
         {/* Heart Rate */}
         <VitalBox 
           label="Heart Rate" 
-          value={currentHr} 
+          value={currentHr || "--"}
           unit="bpm"
-          delta="↑ +32.5% SHIFT"
-          deltaDirection="up"
+          delta={hrDelta ? `${hrDelta > 0 ? '↑' : hrDelta < 0 ? '↓' : ''} ${Math.abs(hrDelta)}% SHIFT` : "Stable"}
+          deltaDirection={hrDelta > 0 ? "up" : hrDelta < 0 ? "down" : "neutral"}
           data={hrData}
           timeout={timeout}
           auditor="Auto"
           time="Just now"
-          isLoading={!vitalsData?.vitals?.length}
+          isLoading={isLoading || !vitals?.length}
+          error={error}
         />
         {/* Blood Pressure */}
         <VitalBox 
           label="NIBP" 
-          value={currentBp} 
+          value={currentBp || "--/--"}
           unit="mmHg"
-          delta="↓ 13.5% SHIFT"
-          deltaDirection="down"
+          delta={bpDelta ? `${bpDelta > 0 ? '↑' : bpDelta < 0 ? '↓' : ''} ${Math.abs(bpDelta)}% SHIFT` : "Stable"}
+          deltaDirection={bpDelta > 0 ? "up" : bpDelta < 0 ? "down" : "neutral"}
           data={bpData}
           timeout={timeout}
           auditor="Auto"
           time="Just now"
-          isLoading={!vitalsData?.vitals?.length}
+          isLoading={isLoading || !vitals?.length}
+          error={error}
         />
         {/* SpO2 */}
         <VitalBox 
           label="SpO2" 
-          value={currentSpo2} 
+          value={currentSpo2 || "--"}
           unit="%"
           delta="Stable"
           deltaDirection="neutral"
@@ -146,21 +122,21 @@ export function RiskProfileHeader({ vitalsData, handoffData, timeout }: any) {
           timeout={timeout}
           auditor="Auto"
           time="Just now"
-          isLoading={!vitalsData?.vitals?.length}
+          isLoading={isLoading || !vitals?.length}
+          error={error}
         />
       </div>
     </div>
   );
 }
 
-function VitalBox({ label, value, unit, delta, deltaDirection, data, auditor, time, secondaryTag, isLoading }: any) {
+function VitalBox({ label, value, unit, delta, deltaDirection, data, auditor, time, secondaryTag, isLoading, error }: any) {
   const isUpward = deltaDirection === 'up';
   const isDownward = deltaDirection === 'down';
   const isNeutral = !isUpward && !isDownward;
   const isBloodPressure = label === 'NIBP';
   
-  const strokeColor = isUpward ? "#f59e0b" : isDownward ? "#dc2626" : (label === 'SpO2' ? "#60a5fa" : "#94a3b8");
-  const fillColor = isUpward ? "rgba(245,158,11,0.2)" : isDownward ? "rgba(220,38,38,0.2)" : (label === 'SpO2' ? "rgba(96,165,250,0.2)" : "rgba(148,163,184,0.2)");
+  const strokeColor = label === 'Heart Rate' ? "#F59E0B" : label === 'NIBP' ? "#EF4444" : (label === 'SpO2' ? "#60a5fa" : "#94a3b8");
   const badgeBg = isUpward ? "bg-amber-500/20 border-amber-500/30" : isDownward ? "bg-red-500/20 border-red-500/30" : "bg-slate-700 border-slate-600";
   const badgeText = isUpward ? "text-amber-400" : isDownward ? "text-red-400" : "text-slate-300";
 
@@ -213,9 +189,17 @@ function VitalBox({ label, value, unit, delta, deltaDirection, data, auditor, ti
           <span className="text-lg font-semibold text-slate-400">{unit}</span>
         </div>
 
-        {isLoading ? (
+        {error ? (
+          <div className="w-full h-full bg-slate-900/50 border-t border-slate-800 flex items-center justify-center">
+            <span className="text-[10px] text-red-400 font-medium">Clinical Data Stream Offline</span>
+          </div>
+        ) : isLoading ? (
           <div className="w-full h-full bg-slate-900/50 border-t border-slate-800 flex items-center justify-center animate-pulse">
-            <span className="text-[10px] text-slate-500 font-medium">Searching for Clinical Data...</span>
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-16 h-2 bg-slate-700 rounded animate-pulse"></div>
+              <div className="w-12 h-2 bg-slate-700 rounded animate-pulse"></div>
+              <div className="w-20 h-2 bg-slate-700 rounded animate-pulse"></div>
+            </div>
           </div>
         ) : !data || data.length === 0 ? (
           <div className="w-full h-full bg-slate-900/50 border-t border-slate-800 flex items-center justify-center">
@@ -227,8 +211,8 @@ function VitalBox({ label, value, unit, delta, deltaDirection, data, auditor, ti
               <ComposedChart data={data} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="gradient-nibp" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#dc2626" stopOpacity={0.15}/>
-                    <stop offset="100%" stopColor="#dc2626" stopOpacity={0}/>
+                    <stop offset="0%" stopColor="#EF4444" stopOpacity={0.2}/>
+                    <stop offset="100%" stopColor="#EF4444" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
                 <XAxis 
@@ -244,7 +228,7 @@ function VitalBox({ label, value, unit, delta, deltaDirection, data, auditor, ti
                 <Area 
                   type="step" 
                   dataKey="systolic" 
-                  stroke="#dc2626" 
+                  stroke="#EF4444" 
                   strokeWidth={2} 
                   fill="url(#gradient-nibp)"
                   isAnimationActive={false}
@@ -252,7 +236,7 @@ function VitalBox({ label, value, unit, delta, deltaDirection, data, auditor, ti
                 <Area 
                   type="step" 
                   dataKey="diastolic" 
-                  stroke="#dc2626" 
+                  stroke="#EF4444" 
                   strokeWidth={2} 
                   fill="url(#gradient-nibp)"
                   isAnimationActive={false}
@@ -264,7 +248,7 @@ function VitalBox({ label, value, unit, delta, deltaDirection, data, auditor, ti
               <AreaChart data={data} margin={{ top: 20, right: 0, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id={`gradient-${label.replace(/\s+/g,'-')}`} x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={strokeColor} stopOpacity={0.15}/>
+                    <stop offset="0%" stopColor={strokeColor} stopOpacity={0.2}/>
                     <stop offset="100%" stopColor={strokeColor} stopOpacity={0}/>
                   </linearGradient>
                 </defs>
